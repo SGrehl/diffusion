@@ -1,3 +1,5 @@
+library(tidyverse)
+
 # Create the world
 world_init <- function(size = 9,
                        agents_per_cell = 3) {
@@ -81,6 +83,7 @@ world_step <- function(world, model) {
     if (nrow(cell)>0) {
       contact <- world %>%
         filter(x == cell$x, y == cell$y) %>% 
+        filter(id != innovator$id) %>% 
         select(id) %>%
         slice_sample(n = 1)
       
@@ -106,7 +109,7 @@ run_simulation <- function(model,
   
   for (i in 1:max_steps){
     if (i==1) worlds[[i]] <- world_init(model$world_size, model$world_agents_per_cell)
-    else    worlds[[i]] <- world_step_old(worlds[[i-1]], model)
+    else    worlds[[i]] <- world_step(worlds[[i-1]], model)
     
     if (!is.na(save_path)) {
       png_filename <- paste0(save_path,file.path(sprintf("world_%02d.png", i)))
