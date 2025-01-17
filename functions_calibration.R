@@ -186,6 +186,7 @@ calibrate_model <- function(
         agent_contact_parameter = tmp_model$agent_contact_parameter,
         agent_contact_contagion = tmp_model$agent_contact_contagion,
         start_seed              = model$seed,
+        simulations             = n_sims,
         fit = avg_fit
       ))
   }
@@ -266,6 +267,7 @@ calibrate_model_mc <- function(
       agent_contact_parameter = tmp_model$agent_contact_parameter,
       agent_contact_contagion = tmp_model$agent_contact_contagion,
       start_seed              = model$seed,
+      simulations             = n_sims,
       fit                     = avg_fit,
       stringsAsFactors        = FALSE
     )
