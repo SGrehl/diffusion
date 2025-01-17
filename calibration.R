@@ -37,8 +37,8 @@ base_model <- list(
 calibration_result <- calibrate_model_mc(
   historic_report         = historic_report,
   model                   = base_model,
-  param_range_contact     = seq(0.0, 1.0, by = 0.05),
-  param_range_contagion   = seq(0.0, 1.0, by = 0.05),
+  agent_contact_parameter = seq(0.0, 1.0, by = 0.05),
+  agent_contact_contagion = seq(0.0, 1.0, by = 0.05),
   n_sims                  = 50,
   max_steps               = 25
 )
