@@ -1,0 +1,13 @@
+#!/bin/bash
+
+#SBATCH --time=10:00:00
+#SBATCH --mem=64G
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=24
+#SBATCH --job-name=R-opinion-dynamics
+#SBATCH --partition=paul
+
+export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
+
+module load R
+Rscript calibration.R
