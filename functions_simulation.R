@@ -10,6 +10,7 @@ world_init <- function(size = 9,
   world <- cells %>%
     slice(rep(1:n(), each = agents_per_cell)) %>%
     mutate(id   = row_number(),
+           cell_id = x + (y-1) * size,
            innovation = ifelse(x == ceiling(size/2) & y == ceiling(size/2) & row_number() == ceiling((size*size*agents_per_cell)/2), 1, 0)  # Initialize innovation to 0
     )
   return(world)
@@ -45,75 +46,151 @@ world_print <- function(world,
   flush.console()
 }
 
-world_step <- function(world, model) {
+get_a_cell_at_manhattan_distance <- function(x, y, d, world_size) {
+  # fast
+  if (d == 0) return(x+(y-1)*world_size)
+  
+  # we are sure there are non 
+  if (d > (world_size-1)*2) return(-1)
+  
+  cells_at_distance <- do.call(
+    rbind,
+    lapply(0:d, function(k) {
+      dist_rem <- d - k
+      # Four possible points for each k
+      rbind(
+        c(x + k, y + dist_rem),
+        c(x + k, y - dist_rem),
+        c(x - k, y + dist_rem),
+        c(x - k, y - dist_rem)
+      )
+    })
+  )
+  
+  # Remove duplicates (especially when k=0 or dist_rem=0)
+  cells_at_distance <- unique(cells_at_distance)
+  
+  # Filter out-of-bounds points
+  in_bounds <- cells_at_distance[,1] >= 1 & cells_at_distance[,1] <= world_size &
+               cells_at_distance[,2] >= 1 & cells_at_distance[,2] <= world_size
+  cells_at_distance <- cells_at_distance[in_bounds, , drop = FALSE]
+  
+  # If no valid points remain (for example, near edges), return NA or error
+  if (nrow(cells_at_distance) == 0) return(-1) 
+  
+  # Pick one cell at random
+  chosen_cell <- cells_at_distance[sample(nrow(cells_at_distance), 1), ]
+  
+  return(chosen_cell[1]+(chosen_cell[2]-1)*world_size)
+}
+
+create_position_lookup <- function(world) {
+  # Group by cell_id, store a list of all IDs in that cell
+  # 'deframe()' makes a named list with 'cell_id' as the name
+  world %>%
+    group_by(cell_id) %>%
+    summarize(agent_ids = list(id), .groups = "drop") %>%
+    deframe()
+}
+
+world_step <- function(world, model, position_lookup) {
+  
   # Select all agents with innovation == 1
   innovators <- world %>% filter(innovation == 1)
   
-  # if everybody is already converted don't run the simulation step
-  if (nrow(innovators) == nrow(world)) return(world)
-  
-  # Draw random distance from Weibull distribution if specified in the model
-  if (model$agent_contact == "weibull") {
-    max_distance <- function(){round(rweibull(1, shape = model$agent_contact_parameter[1], scale = model$agent_contact_parameter[2]))}
-  } else if (model$agent_contact == "geometric") {
-    max_distance <- function(){round(rgeom(1, prob = model$agent_contact_parameter[1]))}
-  } else {
-    stop("Unsupported agent_contact type")
-  }
-  
-  get_a_cell_at_manhattan_distance <- function(x, y, d, grid_size) {
-    expand.grid(dx = -d:d, dy = -d:d) %>%
-      filter(abs(dx) + abs(dy) == d) %>%
-      mutate(x = x + dx, y = y + dy) %>%
-      filter(x >= 1 & x <= grid_size & y >= 1 & y <= grid_size) %>%
-      select(x, y) %>%
-      slice_sample(n = 1)
-  }
-  
-  # Iterate through each innovator
-  for (i in 1:nrow(innovators)) {
-    innovator <- innovators[i, ]
+  # 2) Filter out innovators whose random_value is above the threshold
+  innovators <- innovators %>% 
+    mutate(random_value = runif(n())) %>%
+    filter(!(innovation == 1 & random_value > model$agent_contact_contagion))
     
-    # select a random cell in this range
-    cell <- get_a_cell_at_manhattan_distance(innovator$x, innovator$y, max_distance(), model$world_size)
-    
-    # select a random agent at this cell
-    
-    # check whether there are cells 
-    if (nrow(cell)>0) {
-      contact <- world %>%
-        filter(x == cell$x, y == cell$y) %>% 
-        filter(id != innovator$id) %>% 
-        select(id) %>%
-        slice_sample(n = 1)
-      
-      # If there are candidates, randomly select one to gain innovation
-      if (nrow(contact) > 0 && runif(1) <= model$agent_contact_contagion) {
-        world <- world %>%
-          mutate(innovation = ifelse(id == contact$id, 1, innovation))
-      } 
-    }
-  }
+  # if there are no innovators or everybody is already converted don't run the simulation step
+  if (nrow(innovators) == 0 || nrow(innovators) == nrow(world)) return(world)
+
+  innovators <- innovators %>% 
+    mutate(
+      distances = model$draw_distance(nrow(innovators))
+    ) 
   
+  
+  # instead of innovators %>% rowwise() %>% mutate(target_cell = get_a_cell_at_manhattan_distance(x, y, distances, model$world_size))
+  innovators <- innovators %>%
+    mutate(
+      target_cell = mapply(
+        function(x, y, d) get_a_cell_at_manhattan_distance(x, y, d, model$world_size),
+        x, y, distances
+      )
+    )
+  
+  # sample for each innovators target_cell a random target
+  innovators <- innovators %>%
+    mutate(
+      target_id = mapply(
+        function(tc, my_id) {
+          # If invalid cell, return -1
+          if (tc == -1) return(-1)
+          
+          # Possible targets in that cell
+          targets_id <- position_lookup[[tc]]
+          
+          # Exclude myself
+          targets_id <- targets_id[targets_id != my_id]
+          
+          # If no one left in that cell, return -1
+          if (length(targets_id) == 0) return(-1)
+          
+          # Otherwise pick one at random
+          sample(targets_id, 1)
+        },
+        target_cell,  # from innovators
+        id            # from innovators
+      )
+    )
+  
+  targets = innovators %>% filter(target_id != -1) %>% pull(target_id)
+  
+  if (length(targets) > 0) world$innovation[world$id %in% targets] <- 1
+
   return(world)
 }
 
 run_simulation <- function(model, 
                            max_steps = 25,
                            graph = FALSE,
-                           save_path = NA){
+                           save_path = NA,
+                           ragg = FALSE # are we using the ragg package?
+                           ){
+  start_time <- Sys.time()
+  
   set.seed(model$seed)
   worlds <- list()
-  
-  if (graph) x11()
-  
+
   for (i in 1:max_steps){
-    if (i==1) worlds[[i]] <- world_init(model$world_size, model$world_agents_per_cell)
-    else    worlds[[i]] <- world_step(worlds[[i-1]], model)
-    
+    if (i==1) {
+      # initialize the world
+      worlds[[i]] <- world_init(model$world_size, model$world_agents_per_cell)
+      
+      # generate a lookup table for optimizing the simulation speed
+      position_lookup <- create_position_lookup(worlds[[i]]) # since agent don't move is sufficient to do this only once at the start of the simulation
+      
+      # define the draw_distance() function, which probability function is used
+      model$draw_distance <- switch(
+        model$agent_contact,
+        "weibull" = function(n = 1) {
+          round(rweibull(n,
+                         shape = model$agent_contact_parameter[1],
+                         scale = model$agent_contact_parameter[2]))
+        },
+        "geometric" = function(n = 1) {
+          round(rgeom(n, prob = model$agent_contact_parameter[1]))
+        },
+        stop("Unsupported agent_contact type")
+      )
+    }
+    else    worlds[[i]] <- world_step(worlds[[i-1]], model, position_lookup)
     if (!is.na(save_path)) {
       png_filename <- paste0(save_path,file.path(sprintf("world_%02d.png", i)))
-      png(png_filename, width = 800, height = 800)
+      if (ragg == TRUE) agg_png(png_filename, width = 800, height = 800, res = 7)
+       else png(png_filename, width = 800, height = 800)
       world_print(worlds[[i]], i)
       dev.off()
     } else if (graph) {
@@ -122,7 +199,8 @@ run_simulation <- function(model,
       Sys.sleep(0)  
     }
   } 
-
+  end_time <- Sys.time()
+  print(paste0("GESAMT:",end_time - start_time))
   return(worlds)
 }
 
