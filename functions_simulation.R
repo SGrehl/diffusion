@@ -43,7 +43,6 @@ world_print <- function(world,
          y = "Y Coordinate")
   
   print(plot)
-  flush.console()
 }
 
 get_a_cell_at_manhattan_distance <- function(x, y, d, world_size) {
@@ -154,13 +153,8 @@ world_step <- function(world, model, position_lookup) {
 }
 
 run_simulation <- function(model, 
-                           max_steps = 25,
-                           graph = FALSE,
-                           save_path = NA,
-                           ragg = FALSE # are we using the ragg package?
+                           max_steps = 25
                            ){
-  start_time <- Sys.time()
-  
   set.seed(model$seed)
   worlds <- list()
 
@@ -186,21 +180,8 @@ run_simulation <- function(model,
         stop("Unsupported agent_contact type")
       )
     }
-    else    worlds[[i]] <- world_step(worlds[[i-1]], model, position_lookup)
-    if (!is.na(save_path)) {
-      png_filename <- paste0(save_path,file.path(sprintf("world_%02d.png", i)))
-      if (ragg == TRUE) agg_png(png_filename, width = 800, height = 800, res = 7)
-       else png(png_filename, width = 800, height = 800)
-      world_print(worlds[[i]], i)
-      dev.off()
-    } else if (graph) {
-      Sys.sleep(1)
-      world_print(worlds[[i]], i)
-      Sys.sleep(0)  
-    }
-  } 
-  end_time <- Sys.time()
-  print(paste0("GESAMT:",end_time - start_time))
+    else worlds[[i]] <- world_step(worlds[[i-1]], model, position_lookup)
+  }
   return(worlds)
 }
 
