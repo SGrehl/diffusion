@@ -225,12 +225,13 @@ run_simulation <- function(model,
   return(worlds)
 }
 
-report_generate <- function(worlds){
+# generates a report (a data frame) from an entire simulation history
+report_generate <- function(world_history){
   report <- tibble()
   
-  for (i in seq_along(worlds)) {
+  for (i in seq_along(world_history)) {
     
-    world <- worlds[[i]]
+    world <- world_history[[i]]
     
     share_global <- sum(world$innovation, na.rm = TRUE) / nrow(world)
     
