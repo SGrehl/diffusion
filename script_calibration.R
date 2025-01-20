@@ -13,9 +13,9 @@ model_sim <- list(
   seed                     = 1234,
   world_size               = 13,
   world_agents_per_cell    = 6,
-  agent_contact            = "geometric",   
-  agent_contact_parameter  = 0.5,
-  agent_contact_contagion  = 0.5
+  agent_distance_function  = "geometric",   
+  agent_distance_parameter = 0.5,
+  agent_adoption_p         = 0.5
 )
 
 sim_data <- run_simulation(model_sim)
@@ -28,19 +28,19 @@ base_model <- list(
   seed                     = 1234,
   world_size               = 13,
   world_agents_per_cell    = 6,
-  agent_contact            = "geometric",   
-  agent_contact_parameter  = NA_real_,    # placeholder
-  agent_contact_contagion  = NA_real_     # placeholder
+  agent_distance_function  = "geometric",   
+  agent_distance_parameter = NA_real_,    # placeholder
+  agent_adoption_p         = NA_real_     # placeholder
 )
 
 # run the calibration
 calibration_result <- calibrate_model_mc(
-  historic_report         = historic_report,
-  model                   = base_model,
-  agent_contact_parameter = seq(0.05, 1.0, by = 0.05),
-  agent_contact_contagion = seq(0.05, 1.0, by = 0.05),
-  n_sims                  = 50,
-  max_steps               = 25
+  historic_report          = historic_report,
+  model                    = base_model,
+  agent_distance_parameter = seq(0.05, 1.0, by = 0.05),
+  agent_adoption_p         = seq(0.05, 1.0, by = 0.05),
+  n_sims                   = 50,
+  max_steps                = 25
 )
 
 save(calibration_result, file =  "data/calibration_result.Rdata")

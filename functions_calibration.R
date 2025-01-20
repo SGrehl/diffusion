@@ -128,11 +128,11 @@ calibrate_model <- function(
     historic_report,
     model,
     # if model variable is FALSE, use default provided by `model`, otherwise use them to generate a grid
-    world_size              = NA,
-    world_agents_per_cell   = NA,
-    agent_contact           = NA,
-    agent_contact_parameter = NA,    
-    agent_contact_contagion = NA,
+    world_size               = NA,
+    world_agents_per_cell    = NA,
+    agent_distance_function  = NA,
+    agent_distance_parameter = NA,    
+    agent_adoption_p  = NA,
     # number of simulations runs for each combination
     n_sims = 3,
     # number of steps in each run
@@ -140,11 +140,11 @@ calibrate_model <- function(
 ) {
   # 1) Build a data frame of all combinations
   param_grid <- expand.grid( 
-    world_size              = if_else(is.na(world_size)             , model$world_size             , world_size),
-    world_agents_per_cell   = if_else(is.na(world_agents_per_cell)  , model$world_agents_per_cell  , world_agents_per_cell),
-    agent_contact           = if_else(is.na(agent_contact)          , model$agent_contact          , agent_contact),
-    agent_contact_parameter = if_else(is.na(agent_contact_parameter), model$agent_contact_parameter, agent_contact_parameter),
-    agent_contact_contagion = if_else(is.na(agent_contact_contagion), model$agent_contact_contagion, agent_contact_contagion),
+    world_size               = if_else(is.na(world_size)              , model$world_size              , world_size),
+    world_agents_per_cell    = if_else(is.na(world_agents_per_cell)   , model$world_agents_per_cell   , world_agents_per_cell),
+    agent_distance_function  = if_else(is.na(agent_distance_function) , model$agent_distance_function , agent_distance_function),
+    agent_distance_parameter = if_else(is.na(agent_distance_parameter), model$agent_distance_parameter, agent_distance_parameter),
+    agent_adoption_p         = if_else(is.na(agent_adoption_p)        , model$agent_adoption_p        , agent_adoption_p),
     stringsAsFactors = FALSE
   )
   
@@ -180,13 +180,13 @@ calibrate_model <- function(
     # 4) Store the results
     results <- results %>%
       bind_rows(tibble(
-        world_size              = tmp_model$world_size,
-        world_agents_per_cell   = tmp_model$world_agents_per_cell,
-        agent_contact           = tmp_model$agent_contact,
-        agent_contact_parameter = tmp_model$agent_contact_parameter,
-        agent_contact_contagion = tmp_model$agent_contact_contagion,
-        start_seed              = model$seed,
-        simulations             = n_sims,
+        world_size               = tmp_model$world_size,
+        world_agents_per_cell    = tmp_model$world_agents_per_cell,
+        agent_distance_function  = tmp_model$agent_distance_function,
+        agent_distance_parameter = tmp_model$agent_distance_parameter,
+        agent_adoption_p         = tmp_model$agent_adoption_p,
+        start_seed               = model$seed,
+        simulations              = n_sims,
         fit = avg_fit
       ))
   }
@@ -198,11 +198,11 @@ calibrate_model_mc <- function(
     historic_report, 
     model,
     # if model variable is FALSE, use default provided by `model`, otherwise use them to generate a grid
-    world_size              = NA,
-    world_agents_per_cell   = NA,
-    agent_contact           = NA,
-    agent_contact_parameter = NA,    
-    agent_contact_contagion = NA,
+    world_size               = NA,
+    world_agents_per_cell    = NA,
+    agent_distance_function  = NA,
+    agent_distance_parameter = NA,    
+    agent_adoption_p         = NA,
     # number of simulations runs for each combination
     n_sims = 3,
     # number of steps in each run
@@ -212,11 +212,11 @@ calibrate_model_mc <- function(
 ) {
   # 1) Build a data frame of all combinations
   param_grid <- expand.grid( 
-    world_size              = if_else(is.na(world_size)             , model$world_size             , world_size),
-    world_agents_per_cell   = if_else(is.na(world_agents_per_cell)  , model$world_agents_per_cell  , world_agents_per_cell),
-    agent_contact           = if_else(is.na(agent_contact)          , model$agent_contact          , agent_contact),
-    agent_contact_parameter = if_else(is.na(agent_contact_parameter), model$agent_contact_parameter, agent_contact_parameter),
-    agent_contact_contagion = if_else(is.na(agent_contact_contagion), model$agent_contact_contagion, agent_contact_contagion),
+    world_size               = if_else(is.na(world_size)              , model$world_size              , world_size),
+    world_agents_per_cell    = if_else(is.na(world_agents_per_cell)   , model$world_agents_per_cell   , world_agents_per_cell),
+    agent_distance_function  = if_else(is.na(agent_distance_function) , model$agent_distance_function , agent_distance_function),
+    agent_distance_parameter = if_else(is.na(agent_distance_parameter), model$agent_distance_parameter, agent_distance_parameter),
+    agent_adoption_p         = if_else(is.na(agent_adoption_p)        , model$agent_adoption_p        , agent_adoption_p),
     stringsAsFactors = FALSE
   )
   
@@ -261,15 +261,15 @@ calibrate_model_mc <- function(
     
     # Return a one-row data.frame for foreach to combine
     data.frame(
-      world_size              = tmp_model$world_size,
-      world_agents_per_cell   = tmp_model$world_agents_per_cell,
-      agent_contact           = tmp_model$agent_contact,
-      agent_contact_parameter = tmp_model$agent_contact_parameter,
-      agent_contact_contagion = tmp_model$agent_contact_contagion,
-      start_seed              = model$seed,
-      simulations             = n_sims,
-      fit                     = avg_fit,
-      stringsAsFactors        = FALSE
+      world_size               = tmp_model$world_size,
+      world_agents_per_cell    = tmp_model$world_agents_per_cell,
+      agent_distance_function  = tmp_model$agent_distance_function,
+      agent_distance_parameter = tmp_model$agent_distance_parameter,
+      agent_adoption_p         = tmp_model$agent_adoption_p,
+      start_seed               = model$seed,
+      simulations              = n_sims,
+      fit                      = avg_fit,
+      stringsAsFactors         = FALSE
     )
   }
   
@@ -283,8 +283,8 @@ calibrate_model_mc <- function(
 
 calibration_heatmap_pdf <- function(
     data,
-    x_var       = "agent_contact_parameter",   # Name of the column to use for x-axis
-    y_var       = "agent_contact_contagion",   # Name of the column to use for y-axis
+    x_var       = "agent_distance_parameter",   # Name of the column to use for x-axis
+    y_var       = "agent_adoption_p",   # Name of the column to use for y-axis
     fill_var    = "fit",                       # Name of the column to use for the fill (e.g. fit/error)
     palette     = "RdYlBu",                    # Brewer palette name (see ?RColorBrewer)
     direction   = -1,                          # 1 or -1, flips the palette direction
@@ -304,8 +304,8 @@ calibration_heatmap_pdf <- function(
 
 calibration_heatmap <- function(
     data,
-    x_var       = "agent_contact_parameter",   # Name of the column to use for x-axis
-    y_var       = "agent_contact_contagion",   # Name of the column to use for y-axis
+    x_var       = "agent_distance_parameter",   # Name of the column to use for x-axis
+    y_var       = "agent_adoption_p",   # Name of the column to use for y-axis
     fill_var    = "fit",                       # Name of the column to use for the fill (e.g. fit/error)
     palette     = "RdYlBu",                    # Brewer palette name (see ?RColorBrewer)
     direction   = -1,                          # 1 or -1, flips the palette direction

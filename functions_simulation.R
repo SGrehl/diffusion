@@ -1,22 +1,58 @@
 library(tidyverse)
 
 # Create the world
-world_init <- function(size = 9,
-                       agents_per_cell = 3) {
+world_init <- function(world_size = 9,
+                       world_agents_per_cell = 3) {
   # Create the grid
-  cells <- expand.grid(x = 1:size, y = 1:size)
+  cells <- expand.grid(x = 1:world_size, y = 1:world_size)
   
   # Assign agents to grid cells
   world <- cells %>%
-    slice(rep(1:n(), each = agents_per_cell)) %>%
+    slice(rep(1:n(), each = world_agents_per_cell)) %>%
     mutate(id   = row_number(),
-           cell_id = x + (y-1) * size,
-           innovation = ifelse(x == ceiling(size/2) & y == ceiling(size/2) & row_number() == ceiling((size*size*agents_per_cell)/2), 1, 0)  # Initialize innovation to 0
+           cell_id = x + (y-1) * world_size,
+           # Initialize the innovation to 1 in the center for just one agent
+           innovation = ifelse(x == ceiling(world_size/2) & 
+                               y == ceiling(world_size/2) & 
+                               row_number() == ceiling((world_size*world_size*world_agents_per_cell)/2),
+                               1,
+                               0)
     )
   return(world)
 }
 
-# Generate a picture of this square world. Cells without agents are filled black, cells with agents are filled according to the share of agents that have innovation = 1.
+# This function attaches a `draw_distance()` function to the `model` for later use in our ABM.
+# By defining the function once here, we avoid repeatedly running a `switch` at each simulation step, which can improve performance. 
+# Currently, two probability distributions are supported: "weibull" and "geometric".
+model_implement_distance_function <- function(model){
+  model$draw_distance <- switch(
+    model$agent_distance_function,
+    "weibull" = function(n = 1) {
+      round(rweibull(n,
+                     shape = model$agent_distance_parameter[1],
+                     scale = model$agent_distance_parameter[2]))
+    },
+    "geometric" = function(n = 1) {
+      round(rgeom(n, prob = model$agent_distance_parameter[1]))
+    },
+    stop("Unsupported agent distance function")
+  )
+  return(model)
+}
+
+# This function creates a lookup table to quickly find all agents in a specific cell.
+# It rearranges the world data by cell_id and associates each cell with a list of agent IDs.
+# This significantly improves performance by providing direct access to the agents in each cell.
+create_position_lookup <- function(world) {
+  # Group by cell_id, store a list of all IDs in that cell
+  # 'deframe()' makes a named list with 'cell_id' as the name
+  world %>%
+    group_by(cell_id) %>%
+    summarize(agent_ids = list(id), .groups = "drop") %>%
+    deframe()
+}
+
+# Generates a picture of this square world. Cells without agents are filled black, cells with agents are filled according to the share of agents that have innovation = 1.
 # The colors are defined by the variable color. The first color is used when the share is 0, the second color is used when the share is 0.5 and the third color is used if the share is 1. 
 # If the share is anything in between, the colors reflect this accordingly
 world_print <- function(world, 
@@ -45,11 +81,18 @@ world_print <- function(world,
   print(plot)
 }
 
-get_a_cell_at_manhattan_distance <- function(x, y, d, world_size) {
-  # fast
+# This functions returns a random cell id that is exactly d away from the coordinates (x,y) (Manhattan metric)
+# If for a certain d there are no valid cells, -1 (meaning no valid cell) is returned
+# Note: This function is somewhat optimized for speed, but I bet there is improvement possible! 
+get_a_cell_at_manhattan_distance <- function(x,
+                                             y,
+                                             d, 
+                                             world_size
+) {
+  # Return the same cell right away if d == 0
   if (d == 0) return(x+(y-1)*world_size)
   
-  # we are sure there are non 
+  # For these values, we know for sure, there are no valid cells
   if (d > (world_size-1)*2) return(-1)
   
   cells_at_distance <- do.call(
@@ -71,10 +114,10 @@ get_a_cell_at_manhattan_distance <- function(x, y, d, world_size) {
   
   # Filter out-of-bounds points
   in_bounds <- cells_at_distance[,1] >= 1 & cells_at_distance[,1] <= world_size &
-               cells_at_distance[,2] >= 1 & cells_at_distance[,2] <= world_size
+    cells_at_distance[,2] >= 1 & cells_at_distance[,2] <= world_size
   cells_at_distance <- cells_at_distance[in_bounds, , drop = FALSE]
   
-  # If no valid points remain (for example, near edges), return NA or error
+  # If no valid cells remain return -1
   if (nrow(cells_at_distance) == 0) return(-1) 
   
   # Pick one cell at random
@@ -83,35 +126,36 @@ get_a_cell_at_manhattan_distance <- function(x, y, d, world_size) {
   return(chosen_cell[1]+(chosen_cell[2]-1)*world_size)
 }
 
-create_position_lookup <- function(world) {
-  # Group by cell_id, store a list of all IDs in that cell
-  # 'deframe()' makes a named list with 'cell_id' as the name
-  world %>%
-    group_by(cell_id) %>%
-    summarize(agent_ids = list(id), .groups = "drop") %>%
-    deframe()
-}
-
-world_step <- function(world, model, position_lookup) {
+# simulates one time step for a given world and model
+world_step <- function(world, 
+                       model, 
+                       position_lookup = create_position_lookup(world) # if no position_lookup is provided, it is calculated  
+){
   
-  # Select all agents with innovation == 1
+  # 1) Select all agents who are innovators
   innovators <- world %>% filter(innovation == 1)
   
-  # 2) Filter out innovators whose random_value is above the threshold
+  # If everyone is already converted, don't run the simulation step
+  if (nrow(innovators) == nrow(world)) return(world)
+  
+  # 2) Filter out innovators whose random_value is above the threshold. 
+  #    That is, only keep those who will successfully convince a target agent.
+  #    Filtering here saves performance because we skip the following steps 
+  #    for innovators who wouldn't convert anyone anyway.
   innovators <- innovators %>% 
     mutate(random_value = runif(n())) %>%
-    filter(!(innovation == 1 & random_value > model$agent_contact_contagion))
+    filter(random_value > model$agent_adoption_p)
     
-  # if there are no innovators or everybody is already converted don't run the simulation step
-  if (nrow(innovators) == 0 || nrow(innovators) == nrow(world)) return(world)
+  # If no innovators remain after filtering, skip the step
+  if (nrow(innovators) == 0) return(world)
 
+  # 3) Draw a random distance for each innovator
   innovators <- innovators %>% 
     mutate(
       distances = model$draw_distance(nrow(innovators))
     ) 
   
-  
-  # instead of innovators %>% rowwise() %>% mutate(target_cell = get_a_cell_at_manhattan_distance(x, y, distances, model$world_size))
+  # 4) For each innovator, determine a random target cell using Manhattan distance
   innovators <- innovators %>%
     mutate(
       target_cell = mapply(
@@ -120,7 +164,7 @@ world_step <- function(world, model, position_lookup) {
       )
     )
   
-  # sample for each innovators target_cell a random target
+  # 5) For each innovator, pick a random target agent within the target cell
   innovators <- innovators %>%
     mutate(
       target_id = mapply(
@@ -145,8 +189,10 @@ world_step <- function(world, model, position_lookup) {
       )
     )
   
+  # Collect all valid targets (target_id != -1)
   targets = innovators %>% filter(target_id != -1) %>% pull(target_id)
   
+  # 6) Update those target agents to become innovators
   if (length(targets) > 0) world$innovation[world$id %in% targets] <- 1
 
   return(world)
@@ -154,33 +200,27 @@ world_step <- function(world, model, position_lookup) {
 
 run_simulation <- function(model, 
                            max_steps = 25
-                           ){
+){
   set.seed(model$seed)
   worlds <- list()
-
+  
   for (i in 1:max_steps){
     if (i==1) {
-      # initialize the world
+      # 1) Initialize the world in the first iteration
       worlds[[i]] <- world_init(model$world_size, model$world_agents_per_cell)
       
-      # generate a lookup table for optimizing the simulation speed
-      position_lookup <- create_position_lookup(worlds[[i]]) # since agent don't move is sufficient to do this only once at the start of the simulation
+      # 2) Create a lookup table for quick agent lookups
+      #    Agents do not move, so building this once is sufficient.
+      position_lookup <- create_position_lookup(worlds[[i]]) 
       
-      # define the draw_distance() function, which probability function is used
-      model$draw_distance <- switch(
-        model$agent_contact,
-        "weibull" = function(n = 1) {
-          round(rweibull(n,
-                         shape = model$agent_contact_parameter[1],
-                         scale = model$agent_contact_parameter[2]))
-        },
-        "geometric" = function(n = 1) {
-          round(rgeom(n, prob = model$agent_contact_parameter[1]))
-        },
-        stop("Unsupported agent_contact type")
-      )
+      # 3) Attach the chosen distance-drawing function to the model
+      #    (e.g., "weibull" or "geometric")
+      model <- model_implement_distance_function(model)
     }
-    else worlds[[i]] <- world_step(worlds[[i-1]], model, position_lookup)
+    else {
+      # 4) Update the world one step at a time
+      worlds[[i]] <- world_step(worlds[[i-1]], model, position_lookup)
+    }
   }
   return(worlds)
 }
